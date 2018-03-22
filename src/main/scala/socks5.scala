@@ -2,8 +2,8 @@ package firesocks.socks5
 
 import java.io.{InputStream, OutputStream}
 
-class Greeting(
-  val auth_methods: Array[AuthMethod]
+case class Greeting(
+  auth_methods: List[AuthMethod]
 )
 
 sealed abstract class AuthMethod
@@ -13,8 +13,8 @@ case object UserPassAuth extends AuthMethod
 case class IanaAuth(val method: Int) extends AuthMethod
 case class PrivAuth(val value: Int) extends AuthMethod
 
-class GreetingResponse(
-  val auth_method: Option[AuthMethod]
+case class GreetingResponse(
+  auth_method: Option[AuthMethod]
 )
 
 sealed abstract class ConnectionRequest {
@@ -26,16 +26,16 @@ case class BindRequest(override val addr: Address, override val port: Int) exten
 case class UdpPortRequest(override val addr: Address, override val port: Int) extends ConnectionRequest
 
 sealed abstract class Address {
-  def bytes: Array[Byte]
+  def bytes: List[Byte]
 }
-case class Ipv4Address(override val bytes: Array[Byte]) extends Address
-case class Ipv6Address(override val bytes: Array[Byte]) extends Address
-case class DomainNameAddress(override val bytes: Array[Byte]) extends Address
+case class Ipv4Address(override val bytes: List[Byte]) extends Address
+case class Ipv6Address(override val bytes: List[Byte]) extends Address
+case class DomainNameAddress(override val bytes: List[Byte]) extends Address
 
-class ConnectionResponse(
-  val status: ConnectionStatus,
-  val addr: Address,
-  val port: Int
+case class ConnectionResponse(
+  status: ConnectionStatus,
+  addr: Address,
+  port: Int
 )
 
 sealed abstract class ConnectionStatus
@@ -56,15 +56,15 @@ object Socks5IO {
     implicitly[Write[T]].write(to, data)
   }
 
-  private trait Read[T] {
+  trait Read[T] {
     def read(from: InputStream): Option[T]
   }
 
-  private trait Write[T] {
+  trait Write[T] {
     def write(to: OutputStream, data: T)
   }
 
-  private implicit object ReadImpl_AuthMethod extends Read[AuthMethod] {
+  implicit object ReadImpl_AuthMethod extends Read[AuthMethod] {
     override def read(from: InputStream): Option[AuthMethod] = {
       from.read() match {
         case -1 => None
@@ -78,7 +78,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object WriteImpl_AuthMethod extends Write[AuthMethod] {
+  implicit object WriteImpl_AuthMethod extends Write[AuthMethod] {
     override def write(to: OutputStream, auth_method: AuthMethod) {
       to.write(auth_method match {
         case NoAuth => 0x00
@@ -90,7 +90,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object ReadImpl_Greeting extends Read[Greeting] {
+  implicit object ReadImpl_Greeting extends Read[Greeting] {
     override def read(from: InputStream): Option[Greeting] = {
       val version = from.read()
       if (version == -1 || version != 5) return None
@@ -103,11 +103,11 @@ object Socks5IO {
           case Some(m) => methods(i - 1) = m
         }
       }
-      Some(new Greeting(methods))
+      Some(Greeting(methods.toList))
     }
   }
 
-  private implicit object WriteImpl_Greeting extends Write[Greeting] {
+  implicit object WriteImpl_Greeting extends Write[Greeting] {
     override def write(to: OutputStream, greeting: Greeting) {
       to.write(0x05)
       to.write(greeting.auth_methods.length)
@@ -117,19 +117,19 @@ object Socks5IO {
     }
   }
 
-  private implicit object ReadImpl_GreetingResponse extends Read[GreetingResponse] {
+  implicit object ReadImpl_GreetingResponse extends Read[GreetingResponse] {
     override def read(from: InputStream): Option[GreetingResponse] = {
       val version = from.read()
       if (version == -1 || version != 5) return None
       from.read() match {
         case -1 => None
-        case 0xFF => Some(new GreetingResponse(None))
-        case met => implicitly[Read[AuthMethod]].read(from).map(am => new GreetingResponse(Some(am)))
+        case 0xFF => Some(GreetingResponse(None))
+        case met => implicitly[Read[AuthMethod]].read(from).map(am => GreetingResponse(Some(am)))
       }
     }
   }
 
-  private implicit object WriteImpl_GreetingResponse extends Write[GreetingResponse] {
+  implicit object WriteImpl_GreetingResponse extends Write[GreetingResponse] {
     override def write(to: OutputStream, res: GreetingResponse) {
       to.write(0x05)
       res.auth_method match {
@@ -139,7 +139,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object ReadImpl_Address extends Read[Address] {
+  implicit object ReadImpl_Address extends Read[Address] {
     override def read(from: InputStream): Option[Address] = from.read() match {
       case -1 => None
       case 0x01 => readNBytes(from, 4) map Ipv4Address
@@ -148,7 +148,7 @@ object Socks5IO {
       case _ => None
     }
 
-    private def readNBytes(from: InputStream, n: Int): Option[Array[Byte]] = {
+    private def readNBytes(from: InputStream, n: Int): Option[List[Byte]] = {
       val bytes = new Array[Byte](n)
       var r = 0
       while (r != n) {
@@ -156,27 +156,27 @@ object Socks5IO {
         if (ret == -1) return None
         r += ret
       }
-      Some(bytes)
+      Some(bytes.toList)
     }
-    private def readVarBytes(from: InputStream): Option[Array[Byte]] = {
+    private def readVarBytes(from: InputStream): Option[List[Byte]] = {
       val n = from.read()
       if (n == -1) return None
       readNBytes(from, n)
     }
   }
 
-  private implicit object WriteImpl_Address extends Write[Address] {
+  implicit object WriteImpl_Address extends Write[Address] {
     override def write(to: OutputStream, addr: Address) {
       to.write(addr match {
         case Ipv4Address(_) => 0x01
         case DomainNameAddress(_) => 0x03
         case Ipv6Address(_) => 0x04
       })
-      to.write(addr.bytes)
+      to.write(addr.bytes.toArray)
     }
   }
 
-  private implicit object ReadImpl_ConnectionStatus extends Read[ConnectionStatus] {
+  implicit object ReadImpl_ConnectionStatus extends Read[ConnectionStatus] {
     override def read(from: InputStream): Option[ConnectionStatus] = from.read() match {
       case -1 => None
       case 0x00 => Some(RequestGranted)
@@ -192,7 +192,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object WriteImpl_ConnectionStatus extends Write[ConnectionStatus] {
+  implicit object WriteImpl_ConnectionStatus extends Write[ConnectionStatus] {
     override def write(to: OutputStream, status: ConnectionStatus) {
       to.write(status match {
         case RequestGranted => 0x00
@@ -208,7 +208,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object ReadImpl_ConnectionRequest extends Read[ConnectionRequest] {
+  implicit object ReadImpl_ConnectionRequest extends Read[ConnectionRequest] {
     override def read(from: InputStream): Option[ConnectionRequest] = {
       val version = from.read()
       if (version == -1 || version != 5) return None
@@ -237,7 +237,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object WriteImpl_ConnectionRequest extends Write[ConnectionRequest] {
+  implicit object WriteImpl_ConnectionRequest extends Write[ConnectionRequest] {
     override def write(to: OutputStream, req: ConnectionRequest) {
       to.write(0x05)
       to.write(req match {
@@ -256,7 +256,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object ReadImpl_ConnectionResponse extends Read[ConnectionResponse] {
+  implicit object ReadImpl_ConnectionResponse extends Read[ConnectionResponse] {
     override def read(from: InputStream): Option[ConnectionResponse] = try {
       val version = from.read()
       if (version == -1 || version != 0x05) return None
@@ -264,7 +264,7 @@ object Socks5IO {
       if (from.read != 0x00) return None
       val addr = implicitly[Read[Address]].read(from).get
       val port = readPort(from)
-      Some(new ConnectionResponse(status, addr, port))
+      Some(ConnectionResponse(status, addr, port))
     }
     catch {
       case _: java.util.NoSuchElementException => None
@@ -278,7 +278,7 @@ object Socks5IO {
     }
   }
 
-  private implicit object WriteImpl_ConnectionResponse extends Write[ConnectionResponse] {
+  implicit object WriteImpl_ConnectionResponse extends Write[ConnectionResponse] {
     override def write(to: OutputStream, res: ConnectionResponse) {
       to.write(0x05)
       implicitly[Write[ConnectionStatus]].write(to, res.status)
